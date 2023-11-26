@@ -2,12 +2,9 @@
 Python script to download a named Manjaro ISO and verify the signature
 
 ## Usage
-Ensure you have Python 3.11 and the Python requests module on your system.
 
-1. Create a new file on your system
-2. Copy the content of `get-iso`
-3. Paste it into the new file
-4. Save
+    git clone https://github.com/fhdk/manjaro-get-iso
+    cd manjaro-get-iso
 
 Make the file executable and copy the file /usr/local/bin
 
