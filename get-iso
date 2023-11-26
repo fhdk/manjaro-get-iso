@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# @linux-aarhus - root.nix.dk
+# License: GNU GPL, version 3 or later; https://www.gnu.org/licenses/gpl.html
+import argparse
+import subprocess
+import sys
+import os
+import requests
+import time
+from typing import List
+from pathlib import Path
+
+DEF_URL = "https://gitlab.manjaro.org/webpage/iso-info/-/raw/master/file-info.json"
+FOLDER = Path.home()
+PROG_NAME = os.path.basename(__file__)
+PROG_VERSION = "0.2"
+GNU_URL = "https://www.gnu.org/licenses/gpl.html"
+
+
+def download_file(url: str, folder_name: str) -> bool:
+    filename: str = url.split("/")[-1]
+    path = os.path.join("/{}/{}".format(folder_name, filename))
+    try:
+        response = requests.get(url, stream=True)
+        total_size_in_bytes = int(response.headers.get("content-length", 0))
+        block_size = 1024
+        if total_size_in_bytes < block_size:
+            block_size = total_size_in_bytes
+
+        with open(path, "wb") as f:
+            progress = 0
+            for data in response.iter_content(block_size):
+                f.write(data)
+                if len(data) < block_size:
+                    progress += len(data)
+                else:
+                    progress += block_size
+                print(f"Receiving <- {progress}/{total_size_in_bytes}", end="\r")
+
+    except Exception as e:
+        print(e)
+        return False
+    return True
+
+
+def get_definitions(url: str) -> dict:
+    iso_def = {}
+    try:
+        resp = requests.get(url=url, timeout=10)
+        resp.raise_for_status()
+        iso_def = resp.json()
+    except Exception as e:
+        print(f"{e}")
+    return iso_def
+
+
+def init_iso_list(url: str) -> List:
+    data = get_definitions(url)
+    data_official = data.get("official")
+    data_community = data.get("community")
+    init_iso_result = []
+    for ok, ov in data_official.items():
+        try:
+            init_iso_result.append({"name": ok,
+                                    "full": {"img": ov["image"], "sig": ov["signature"]},
+                                    "minimal": {"img": ov["minimal"]["image"], "sig": ov["minimal"]["signature"]}
+                                    })
+        except:
+            continue
+
+    for ck, cv in data_community.items():
+        try:
+            init_iso_result.append({"name": ck,
+                                    "full": {"img": cv["image"], "sig": cv["signature"]},
+                                    "minimal": {"img": cv["minimal"]["image"], "sig": cv["minimal"]["signature"]}
+                                    })
+        except:
+            continue
+
+    return init_iso_result
+
+
+def download(url: str) -> bool:
+    print(f'Downloading: {url.split("/")[-1]}')
+    success = download_file(url, f"{FOLDER}")
+    return success
+
+
+def main():
+    iso_files = init_iso_list(DEF_URL)
+    choices = []
+    for c in iso_files:
+        choices.append(c["name"])
+    parser = argparse.ArgumentParser(
+        prog=f"{PROG_NAME}",
+        description="This tool will download a named Manjaro ISO and verify the signature",
+        epilog=f"{PROG_NAME} v. {PROG_VERSION} - GPL v3 or later <{GNU_URL}>")
+    parser.add_argument("edition",
+                        type=str,
+                        help="edition e.g. plasma or xfce",
+                        choices=choices)
+    parser.add_argument("-f", "--full",
+                        required=False,
+                        action="store_true",
+                        help="Download full ISO")
+    args = parser.parse_args()
+    if args.edition is None:
+        parser.print_usage()
+    edition = [x for x in iso_files if args.edition == x["name"]]
+    for x in edition:
+        if args.full:
+            iso = x["full"]
+        else:
+            iso = x["minimal"]
+        iso_result = download(iso["img"])
+        sig_result = download(iso["sig"])
+        if sig_result and iso_result:
+            print("Wait for verification ...")
+            time.sleep(5)
+            result = subprocess.run(
+                ["gpg", "--verify", f'{iso["sig"].split("/")[-1]}'],
+                cwd=f"{FOLDER}")
+        else:
+            print("Download ISO failed")
+            sys.exit(0)
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n" + "Exit: interrupted by the user.")
+        sys.exit(1)
